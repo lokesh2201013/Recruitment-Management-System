@@ -14,13 +14,13 @@ func AuthRoutes(app *fiber.App) {
 	app.Use(middleware.AuthMiddleware())
 
     
-    // Job-related routes for Admins
+    //  routes for Admins
     app.Post("/admin/job", middleware.AdminOnly(controllers.CreateJob))
     app.Get("/admin/job/:job_id", middleware.AdminOnly(controllers.GetJob))
     app.Get("/admin/applicants", middleware.AdminOnly(controllers.GetAllApplicants))
     app.Get("/admin/applicant/:applicant_id", middleware.AdminOnly(controllers.GetApplicantDetails))
 
-    // Applicant-related routes
+    // applicant-related routes
     app.Post("/uploadResume", middleware.ApplicantOnly(controllers.UploadResume))
     app.Get("/jobs", controllers.ListJobs)
     app.Get("/jobs/apply", middleware.ApplicantOnly(controllers.ApplyForJob))

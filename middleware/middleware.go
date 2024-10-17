@@ -53,7 +53,7 @@ if !ok {
         "error": "Missing user_id in token",
     })
 }
-        // Extract user_type from JWT claims and set it in Locals
+        
         userType, ok := claims["user_type"].(string)
         if !ok {
             return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -80,7 +80,7 @@ func GenerateJWT(userID uint , userType string)(string ,error){
 }
 func AdminOnly(next fiber.Handler) fiber.Handler {
     return func(c *fiber.Ctx) error {
-        // Log the value to check what is stored
+      
         fmt.Println("user_type:", c.Locals("user_type"))
 
         userType, ok := c.Locals("user_type").(string)

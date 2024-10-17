@@ -34,7 +34,6 @@ func ApplyForJob(c *fiber.Ctx) error {
         return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Job not found"})
     }
 
-    // Add application logic here (this might require another model to track applications)
     job.TotalApplications++
     config.DB.Save(&job)
 

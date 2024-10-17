@@ -1,69 +1,106 @@
 package controllers
 
 import (
-	"bytes"
+	//"bytes"
 	"encoding/json"
 	"io"
-	"mime/multipart"
+	//"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	//"github.com/klauspost/compress/gzhttp/writer"
 	"github.com/lokesh2201013/config"
 	"github.com/lokesh2201013/models"
 )
 
-func UploadResume(c *fiber.Ctx) error{
-	userID:=c.Locals("user_id").(uint)
-    
-	file,err:= c.FormFile("resume")
-	if err!=nil{
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"Resume file is required"})
+type ResumeResponse struct {
+	Name      string   `json:"name"`
+	Address   string   `json:"address"`
+	Email     string   `json:"email"`
+	Phone     string   `json:"phone"`
+	Skills    []string `json:"skills"`
+	Education []struct {
+		Name  string   `json:"name"`
+		Dates []string `json:"dates"`
+	} `json:"education"`
+	Experience []string `json:"experience"`
+}
+
+func UploadResume(c *fiber.Ctx) error {
+	// Get user ID from context
+	userID := c.Locals("user_id").(uint)
+
+	// Get resume file from request
+	file, err := c.FormFile("resume")
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Resume file is required"})
 	}
 
-	ext :=filepath.Ext(file.Filename)
-	if ext != ".pdf" && ext!=".docx"{
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error":"Only pdf and docx are allowed"})
+	// Validate file extension
+	if ext := filepath.Ext(file.Filename); ext != ".pdf" && ext != ".docx" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Only pdf and docx are allowed"})
 	}
 
-	fileData ,err := file.Open()
+	// Read file data
+	fileData, err := file.Open()
+if err != nil {
+    return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to read file"})
+}
+defer fileData.Close()
 
-	if err!=nil{
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error":"Failed to read file"})
 
+req, err := http.NewRequest("POST", "https://api.apilayer.com/resume_parser/upload", fileData)
+if err != nil {
+    return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create request"})
+}
+req.Header.Set("Content-Type", "application/octet-stream")
+req.Header.Set("apikey", "0bWeisRWoLj3UdXt3MXMSMWptYFIpQfS")
+
+client := &http.Client{}
+resp, err := client.Do(req)
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to call resume parser API"})
+	}
+	defer resp.Body.Close()
+
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return c.Status(resp.StatusCode).JSON(fiber.Map{"error": string(body)})
 	}
 
-	body := &bytes.Buffer{}
-	writer:=multipart.NewWriter(body)
-	part,_:=writer.CreateFormFile("file",file.Filename)
+	
+	var resumeData ResumeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&resumeData); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse resume data"})
+	}
 
-	io.Copy(part,fileData)
-	writer.Close()
+	// Create and save profile in the database
+	profile := models.Profile{
+		UserID:     userID,
+		ResumeFile: file.Filename,
+		Skills:     strings.Join(resumeData.Skills, ", "),
+		Education:  formatEducation(resumeData.Education),
+		Experience: strings.Join(resumeData.Experience, ", "),
+		Phone:      resumeData.Phone,
+	}
+	if err := config.DB.Create(&profile).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save profile"})
+	}
 
-	request,_:=http.NewRequest("POST","https://api.apilayer.com/resume_parser/upload",body)
-	request.Header.Add("Content-Type",writer.FormDataContentType())
-	request.Header.Add("apikey", "0bWeisRWoLj3UdXt3MXMSMWptYFIpQfS")
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message": "Resume uploaded successfully", "profile": profile})
+}
 
-	client:=&http.Client{}
 
-	response,_:=client.Do(request)
-
-	defer response.Body.Close()
-
-	var resumeData map[string]interface{}
-
-	json.NewDecoder(response.Body).Decode(&resumeData)
-
-	var profile models.Profile
-    profile.UserID = userID
-    profile.ResumeFile = file.Filename
-    profile.Skills = strings.Join(resumeData["skills"].([]string), ", ")
-    profile.Education = strings.Join(resumeData["education"].([]string), ", ")
-    profile.Experience = strings.Join(resumeData["experience"].([]string), ", ")
-
-    config.DB.Create(&profile)
-
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{"message":"Resume uploaded successfully ","profile":profile})
+func formatEducation(edu []struct {
+	Name  string   `json:"name"`
+	Dates []string `json:"dates"`
+}) string {
+	var education []string
+	for _, e := range edu {
+		education = append(education, e.Name+" ("+strings.Join(e.Dates, ", ")+")")
+	}
+	return strings.Join(education, ", ")
 }
